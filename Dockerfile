@@ -1,0 +1,28 @@
+# Многоэтапная сборка: первый этап компилирует бинарник из исходников,
+# второй — кладёт его в минимальный базовый образ.
+
+# Этап 1: сборка.
+FROM golang:1.24 AS builder
+WORKDIR /src
+
+# Копируем модули и подтягиваем зависимости (кэшируется отдельно).
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Копируем исходники и собираем статический бинарник.
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /piiproxy ./cmd/piiproxy
+
+# Этап 2: минимальный runtime-образ.
+FROM scratch
+COPY --from=builder /piiproxy /piiproxy
+COPY consumers.yaml /consumers.yaml
+
+USER 65532:65532
+
+ENV LISTEN_ADDR=0.0.0.0:8080 \
+    METRICS_ADDR=0.0.0.0:9090
+
+EXPOSE 8080 9090
+
+ENTRYPOINT ["/piiproxy"]

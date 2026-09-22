@@ -1,0 +1,12 @@
+services:
+  pii:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - ./consumers.yaml:/consumers.yaml:ro
+    env_file:
+      - .env
