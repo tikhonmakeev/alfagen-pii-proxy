@@ -13,9 +13,11 @@ COPY consumers.yaml /consumers.yaml
 # Non-root пользователь (UID 65532 — стандартный nobody в scratch).
 USER 65532:65532
 
-ENV LISTEN_ADDR=0.0.0.0:8080 \
-    METRICS_ADDR=0.0.0.0:9090
+ENV LISTEN_ADDR=0.0.0.0:8080
+ENV METRICS_ADDR=0.0.0.0:9090
 
 EXPOSE 8080 9090
 
 ENTRYPOINT ["/piiproxy"]
+
+HEALTHCHECK NONE
