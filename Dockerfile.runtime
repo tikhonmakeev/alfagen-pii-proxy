@@ -1,8 +1,8 @@
-# Минимальный runtime-образ на scratch.
+# Минимальный образ alpine с фиксированной версией.
 # Ожидает, что Linux-бинарник piiproxy уже собран локально и лежит рядом
 # с этим файлом (например, в корне репозитория). Удобно для деплоя на
 # слабые серверы: бинарник собирается на машине разработчика, а не на сервере.
-FROM scratch
+FROM alpine:3.20
 LABEL maintainer="pii-proxy-deepseek team"
 LABEL org.opencontainers.image.title="pii-proxy"
 
@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.title="pii-proxy"
 COPY piiproxy /piiproxy
 COPY consumers.yaml /consumers.yaml
 
-# Non-root пользователь (UID 65532 — стандартный nobody в scratch).
+# Non-root пользователь (UID 65532 — стандартный nobody).
 USER 65532:65532
 
 ENV LISTEN_ADDR=0.0.0.0:8080

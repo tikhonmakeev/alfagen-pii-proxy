@@ -18,8 +18,8 @@ ARG TARGETARCH=amd64
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH}
 RUN go build -trimpath -ldflags="-s -w" -o /piiproxy ./cmd/piiproxy
 
-# Этап 2: минимальный runtime-образ.
-FROM scratch
+# Этап 2: минимальный образ alpine с фиксированной версией.
+FROM alpine:3.20
 COPY --from=builder /piiproxy /piiproxy
 COPY consumers.yaml /consumers.yaml
 
