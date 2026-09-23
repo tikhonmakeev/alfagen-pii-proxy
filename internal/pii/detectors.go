@@ -3,6 +3,8 @@ package pii
 import (
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // regexpDetector — детектор на основе регулярного выражения, где всё
@@ -170,12 +172,42 @@ func (d *pinDetectorImpl) Find(text string) []Entity {
 }
 
 func innDetector() Detector {
-	re := regexp.MustCompile(`(?:инн|inn)\s*[:.\-]?\s*(\d{10}|\d{12})\b`)
-	return &labelValueDetector{
-		typ:  Inn,
-		re:   re,
-		conf: 0.98,
+	re := regexp.MustCompile(`(инн|inn)\s*(?:\S+\s+){0,2}[:.\-]?\s*(\d{10}|\d{12})\b`)
+	return &innDetectorImpl{re: re}
+}
+
+// innDetectorImpl — детектор ИНН. Отбрасывает совпадение, если сразу после
+// метки идёт буква (например "иннфо").
+type innDetectorImpl struct {
+	re *regexp.Regexp
+}
+
+func (d *innDetectorImpl) Type() Type { return Inn }
+
+func (d *innDetectorImpl) Find(text string) []Entity {
+	lower := strings.ToLower(text)
+	var out []Entity
+	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
+		labelEnd := m[1]
+		start, end := m[4], m[5]
+		if start < 0 || end < 0 {
+			continue
+		}
+		if labelEnd < len(lower) {
+			c := lower[labelEnd]
+			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == 0xD0 || c == 0xD1 {
+				continue
+			}
+		}
+		out = append(out, Entity{
+			Type:       Inn,
+			Start:      start,
+			End:        end,
+			Value:      text[start:end],
+			Confidence: 0.98,
+		})
 	}
+	return out
 }
 
 func passportNumberDetector() Detector {
@@ -202,7 +234,7 @@ func (d *passportNumberDetectorImpl) Find(text string) []Entity {
 		if start < 0 || end < 0 {
 			continue
 		}
-		from := start - 20
+		from := start - 40
 		if from < 0 {
 			from = 0
 		}
@@ -290,12 +322,54 @@ func (d *dateDetectorImpl) Find(text string) []Entity {
 }
 
 func postalCodeDetector() Detector {
-	re := regexp.MustCompile(`(?:почтовый\s+индекс|индекс)\s*[:.\-]?\s*(\d{6})\b`)
-	return &bankFilter{inner: &labelValueDetector{typ: PostalCode, re: re, conf: 0.9}}
+	re := regexp.MustCompile(`(?:почтовый\s+индекс|индекс)\s*[:.\-]?\s*(\d{6})\b|\b(\d{6}),\s+(\S)`)
+	return &bankFilter{inner: &postalCodeDetectorImpl{re: re}}
+}
+
+// postalCodeDetectorImpl — детектор почтового индекса. Поддерживает как
+// форму с меткой, так и голые 6 цифр перед запятой и названием города.
+type postalCodeDetectorImpl struct {
+	re *regexp.Regexp
+}
+
+func (d *postalCodeDetectorImpl) Type() Type { return PostalCode }
+
+func (d *postalCodeDetectorImpl) Find(text string) []Entity {
+	lower := strings.ToLower(text)
+	var out []Entity
+	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
+		start, end := -1, -1
+		if m[2] >= 0 {
+			start, end = m[2], m[3]
+		} else if m[4] >= 0 {
+			// Голая форма: после запятой и пробела должна идти заглавная
+			// буква (название города) или "г.".
+			start, end = m[4], m[5]
+			next := m[6]
+			if next < 0 || next >= len(text) {
+				continue
+			}
+			r, _ := utf8.DecodeRuneInString(text[next:])
+			if !unicode.IsUpper(r) {
+				continue
+			}
+		}
+		if start < 0 || end < 0 {
+			continue
+		}
+		out = append(out, Entity{
+			Type:       PostalCode,
+			Start:      start,
+			End:        end,
+			Value:      text[start:end],
+			Confidence: 0.9,
+		})
+	}
+	return out
 }
 
 func countryDetector() Detector {
-	re := regexp.MustCompile(`(?:страна\s+(?:проживания|регистрации)|страна(?:[^а-яa-z0-9]|$))\s*[:.\-]?\s*([^\s;,\n]+(?:\s+[^\s;,\n]+)*)`)
+	re := regexp.MustCompile(`(?:страна\s+(?:проживания|регистрации|рождения|выдачи\s+паспорта|гражданства)|страна(?:[^а-яa-z0-9]|$))\s*[:.\-]?\s*([^\s;,\n]+(?:\s+[^\s;,\n]+){0,2})`)
 	return &labelValueDetector{typ: Country, re: re, conf: 0.9}
 }
 
@@ -315,7 +389,7 @@ func houseFlatDetector() Detector {
 }
 
 func addressDetector() Detector {
-	re := regexp.MustCompile(`(?:(?:адрес(?:а|у|ом|е)?(?:[^а-яa-z0-9]|$)|адрес\s+(?:проживания|регистрации|клиента))|проживает|зарегистрирован(?:а)?)\s*[:.\-]?\s*([^;\n]{3,180})`)
+	re := regexp.MustCompile(`(?:(?:адрес\s+(?:проживания|регистрации|клиента|доставки)|адрес(?:а|у|ом|е)?(?:[^а-яa-z0-9]|$))|проживает|зарегистрирован(?:а)?)\s*[:.\-]?\s*([^;\n]{3,180})`)
 	return &addressDetectorImpl{re: re}
 }
 

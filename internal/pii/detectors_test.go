@@ -99,9 +99,16 @@ func TestPINNoFalsePositive(t *testing.T) {
 }
 
 func TestINN(t *testing.T) {
-	e := findFirst(t, innDetector(), "ИНН: 123456789012")
-	if e.Value != "123456789012" {
-		t.Fatalf("got %q", e.Value)
+	for _, tc := range []struct{ in, want string }{
+		{"ИНН: 123456789012", "123456789012"},
+		{"ИНН клиента 7707083893", "7707083893"},
+		{"ИНН физлица 7707083893", "7707083893"},
+		{"ИНН получателя 7707083893", "7707083893"},
+	} {
+		e := findFirst(t, innDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+		}
 	}
 }
 
@@ -156,6 +163,15 @@ func TestDocumentDisambiguation(t *testing.T) {
 
 	// "ИНН 7707083893" → только inn
 	es = findAll(t, "ИНН 7707083893")
+	if !hasType(es, Inn) {
+		t.Fatalf("expected inn, got %+v", es)
+	}
+	if hasType(es, PassportNumber) {
+		t.Fatalf("expected no passport_number, got %+v", es)
+	}
+
+	// "ИНН клиента 7707083893" → только inn (не passport_number)
+	es = findAll(t, "ИНН клиента 7707083893")
 	if !hasType(es, Inn) {
 		t.Fatalf("expected inn, got %+v", es)
 	}
@@ -235,9 +251,24 @@ func TestPassportIssueDateNoFalsePositive(t *testing.T) {
 }
 
 func TestPostalCode(t *testing.T) {
-	e := findFirst(t, postalCodeDetector(), "Индекс: 123456")
-	if e.Value != "123456" {
-		t.Fatalf("got %q", e.Value)
+	for _, tc := range []struct{ in, want string }{
+		{"Индекс: 123456", "123456"},
+		{"Отправьте на 420000, Казань, ул. Баумана, 5.", "420000"},
+		{"Адрес: 630099, Новосибирск", "630099"},
+	} {
+		e := findFirst(t, postalCodeDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestPostalCodeNoFalsePositive(t *testing.T) {
+	for _, in := range []string{"Номер заявки 123456789", "Сумма 150000 рублей"} {
+		es := postalCodeDetector().Find(in)
+		if len(es) != 0 {
+			t.Fatalf("for %q expected no postal_code, got %+v", in, es)
+		}
 	}
 }
 
@@ -245,6 +276,9 @@ func TestCountry(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"Страна: Россия", "Россия"},
 		{"Страна: Новая Зеландия", "Новая Зеландия"},
+		{"Страна выдачи паспорта: Узбекистан", "Узбекистан"},
+		{"Страна проживания: Казахстан", "Казахстан"},
+		{"Страна гражданства: Беларусь", "Беларусь"},
 	} {
 		e := findFirst(t, countryDetector(), tc.in)
 		if e.Value != tc.want {
@@ -284,9 +318,15 @@ func TestHouseFlat(t *testing.T) {
 }
 
 func TestAddress(t *testing.T) {
-	e := findFirst(t, addressDetector(), "Адрес: г. Москва, ул. Ленина, д. 5, кв. 12")
-	if e.Value != "г. Москва, ул. Ленина, д. 5, кв. 12" {
-		t.Fatalf("got %q", e.Value)
+	for _, tc := range []struct{ in, want string }{
+		{"Адрес: г. Москва, ул. Ленина, д. 5, кв. 12", "г. Москва, ул. Ленина, д. 5, кв. 12"},
+		{"Адрес регистрации: Россия, г. Химки, ул. Мира, д. 3", "Россия, г. Химки, ул. Мира, д. 3"},
+		{"Адрес доставки: г. Казань, ул. Баумана, д. 2", "г. Казань, ул. Баумана, д. 2"},
+	} {
+		e := findFirst(t, addressDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+		}
 	}
 }
 
