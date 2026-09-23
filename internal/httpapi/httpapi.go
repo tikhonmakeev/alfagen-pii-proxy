@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -101,121 +102,143 @@ type processRequest struct {
 	PayloadID string `json:"payload_id"`
 }
 
+// processState — изменяемое состояние обработки одного запроса.
+type processState struct {
+	status       int
+	direction    string
+	foundTypes   []string
+	payloadRunes int
+	payloadID    string
+}
+
 func (s *Server) healthzHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeResult(w, http.StatusOK, "ok")
 }
 
 func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	status := http.StatusOK
-	direction := directionMask
-	var foundTypes []string
-	payloadRunes := 0
-	payloadID := ""
+	st := &processState{status: http.StatusOK, direction: directionMask}
+	defer s.recordMetrics(start, st)
 
-	defer func() {
-		s.requestsTotal.WithLabelValues(direction, strconv.Itoa(status)).Inc()
-		s.requestDuration.WithLabelValues().Observe(time.Since(start).Seconds())
-		s.tokensEstimated.Add(float64(payloadRunes) / 4.0)
-		s.logRequest(payloadID, foundTypes, direction, status, time.Since(start))
-	}()
-
-	var req processRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		status = http.StatusBadRequest
-		direction = directionReject
-		s.writeResult(w, status, "invalid json")
+	req, ok := s.parseRequest(w, r, st)
+	if !ok {
 		return
 	}
-	if req.Payload == "" || req.PayloadID == "" {
-		status = http.StatusBadRequest
-		direction = directionReject
-		s.writeResult(w, status, "missing fields")
-		return
-	}
-	payloadRunes = utf8.RuneCountInString(req.Payload)
-	payloadID = req.PayloadID
-
 	consumer, ok := s.authenticate(r)
 	if !ok {
-		status = http.StatusUnauthorized
-		direction = directionReject
-		s.writeResult(w, status, "unauthorized")
+		s.reject(w, st, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-
-	slotAcquired := false
-	select {
-	case s.inflight <- struct{}{}:
-		slotAcquired = true
-		defer func() {
-			if slotAcquired {
-				<-s.inflight
-			}
-		}()
-	default:
-		status = http.StatusTooManyRequests
-		direction = directionReject
-		w.Header().Set("Retry-After", "1")
-		s.writeResult(w, status, "overloaded")
+	release, ok := s.acquireSlot(w, st)
+	if !ok {
 		return
 	}
+	defer release()
 
 	rec, found := s.store.Get(consumer.ID, req.PayloadID)
 	if !found {
-		masked, tokens, types, err := s.maskPayload(req.Payload, consumer)
-		if err != nil {
-			status = http.StatusServiceUnavailable
-			direction = directionReject
-			s.writeResult(w, status, "internal error")
-			return
-		}
-		foundTypes = types
-		if err := s.store.Put(consumer.ID, req.PayloadID, req.Payload, masked, tokens); err != nil {
-			if errors.Is(err, store.ErrCapacityExceeded) {
-				<-s.inflight
-				slotAcquired = false
-				status = http.StatusTooManyRequests
-				direction = directionReject
-				w.Header().Set("Retry-After", "1")
-				s.writeResult(w, status, "overloaded")
-				return
-			}
-			status = http.StatusServiceUnavailable
-			direction = directionReject
-			s.writeResult(w, status, "internal error")
-			return
-		}
-		status = http.StatusOK
-		direction = directionMask
-		s.writeResult(w, status, masked)
+		s.handleMask(w, st, req, consumer, release)
 		return
 	}
+	s.handleUnmask(w, st, req, consumer, rec)
+}
 
+// recordMetrics пишет метрики и лог по завершении обработки запроса.
+func (s *Server) recordMetrics(start time.Time, st *processState) {
+	s.requestsTotal.WithLabelValues(st.direction, strconv.Itoa(st.status)).Inc()
+	s.requestDuration.WithLabelValues().Observe(time.Since(start).Seconds())
+	s.tokensEstimated.Add(float64(st.payloadRunes) / 4.0)
+	s.logRequest(st.payloadID, st.foundTypes, st.direction, st.status, time.Since(start))
+}
+
+// parseRequest разбирает и валидирует тело запроса.
+func (s *Server) parseRequest(w http.ResponseWriter, r *http.Request, st *processState) (processRequest, bool) {
+	var req processRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.reject(w, st, http.StatusBadRequest, "invalid json")
+		return req, false
+	}
+	if req.Payload == "" || req.PayloadID == "" {
+		s.reject(w, st, http.StatusBadRequest, "missing fields")
+		return req, false
+	}
+	st.payloadRunes = utf8.RuneCountInString(req.Payload)
+	st.payloadID = req.PayloadID
+	return req, true
+}
+
+// acquireSlot занимает слот параллелизма. Возвращает идемпотентную
+// функцию освобождения слота.
+func (s *Server) acquireSlot(w http.ResponseWriter, st *processState) (func(), bool) {
+	select {
+	case s.inflight <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-s.inflight }) }, true
+	default:
+		s.reject(w, st, http.StatusTooManyRequests, "overloaded")
+		return nil, false
+	}
+}
+
+// reject записывает ответ об ошибке и помечает направление как reject.
+func (s *Server) reject(w http.ResponseWriter, st *processState, status int, msg string) {
+	st.status = status
+	st.direction = directionReject
+	if status == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", "1")
+	}
+	s.writeResult(w, status, msg)
+}
+
+// handleMask обрабатывает ветку маскирования нового payload.
+func (s *Server) handleMask(
+	w http.ResponseWriter, st *processState, req processRequest,
+	consumer *config.Consumer, release func(),
+) {
+	masked, tokens, types, err := s.maskPayload(req.Payload, consumer)
+	if err != nil {
+		s.reject(w, st, http.StatusServiceUnavailable, "internal error")
+		return
+	}
+	st.foundTypes = types
+	if err := s.store.Put(consumer.ID, req.PayloadID, req.Payload, masked, tokens); err != nil {
+		if errors.Is(err, store.ErrCapacityExceeded) {
+			release()
+			s.reject(w, st, http.StatusTooManyRequests, "overloaded")
+			return
+		}
+		s.reject(w, st, http.StatusServiceUnavailable, "internal error")
+		return
+	}
+	st.status = http.StatusOK
+	st.direction = directionMask
+	s.writeResult(w, st.status, masked)
+}
+
+// handleUnmask обрабатывает ветку демаскирования существующего payload.
+func (s *Server) handleUnmask(
+	w http.ResponseWriter, st *processState, req processRequest,
+	consumer *config.Consumer, rec store.Record,
+) {
 	hash := sha256.Sum256([]byte(req.Payload))
 	if hash == rec.SourceHash {
-		status = http.StatusOK
-		direction = directionMask
-		s.writeResult(w, status, rec.Masked)
+		st.status = http.StatusOK
+		st.direction = directionMask
+		s.writeResult(w, st.status, rec.Masked)
 		return
 	}
-
-	direction = "unmask"
+	st.direction = "unmask"
 	if !consumer.UnmaskEnabled {
-		status = http.StatusForbidden
-		direction = directionReject
-		s.writeResult(w, status, "forbidden")
+		s.reject(w, st, http.StatusForbidden, "forbidden")
 		return
 	}
 	if !containsAnyToken(req.Payload, rec.Tokens) {
-		status = http.StatusConflict
-		direction = directionReject
-		s.writeResult(w, status, "conflict")
+		s.reject(w, st, http.StatusConflict, "conflict")
 		return
 	}
 	restored := pii.Unmask(req.Payload, rec.Tokens)
-	status = http.StatusOK
-	s.writeResult(w, status, restored)
+	st.status = http.StatusOK
+	s.writeResult(w, st.status, restored)
 }
 
 func (s *Server) maskPayload(payload string, consumer *config.Consumer) (masked string, tokens map[string]string, foundTypes []string, err error) {

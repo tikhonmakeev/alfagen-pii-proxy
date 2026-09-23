@@ -11,6 +11,9 @@ const (
 	passport4509  = "4509 123456"
 	vu7701123456  = "В/У: 7701123456"
 	dept770001    = "770-001"
+	noPassportFmt = "expected no passport_number, got %+v"
+	passportFmt   = "expected passport_number, got %+v"
+	pushkin       = "пушкин"
 )
 
 func findFirst(t *testing.T, d Detector, text string) Entity {
@@ -165,7 +168,7 @@ func TestDocumentDisambiguation(t *testing.T) {
 		t.Fatalf("expected driver_license_number, got %+v", es)
 	}
 	if hasType(es, PassportNumber) {
-		t.Fatalf("expected no passport_number, got %+v", es)
+		t.Fatalf(noPassportFmt, es)
 	}
 
 	// "ВУ 99 12 345678 категории B" → driver_license_number
@@ -174,7 +177,7 @@ func TestDocumentDisambiguation(t *testing.T) {
 		t.Fatalf("expected driver_license_number, got %+v", es)
 	}
 	if hasType(es, PassportNumber) {
-		t.Fatalf("expected no passport_number, got %+v", es)
+		t.Fatalf(noPassportFmt, es)
 	}
 
 	// "ИНН 7707083893" → только inn
@@ -183,7 +186,7 @@ func TestDocumentDisambiguation(t *testing.T) {
 		t.Fatalf("expected inn, got %+v", es)
 	}
 	if hasType(es, PassportNumber) {
-		t.Fatalf("expected no passport_number, got %+v", es)
+		t.Fatalf(noPassportFmt, es)
 	}
 
 	// "ИНН клиента 7707083893" → только inn (не passport_number)
@@ -192,13 +195,13 @@ func TestDocumentDisambiguation(t *testing.T) {
 		t.Fatalf("expected inn, got %+v", es)
 	}
 	if hasType(es, PassportNumber) {
-		t.Fatalf("expected no passport_number, got %+v", es)
+		t.Fatalf(noPassportFmt, es)
 	}
 
 	// "паспорт 4509 123456" → passport_number
 	es = findAll(t, "паспорт 4509 123456")
 	if !hasType(es, PassportNumber) {
-		t.Fatalf("expected passport_number, got %+v", es)
+		t.Fatalf(passportFmt, es)
 	}
 	if hasType(es, DriverLicenseNumber) {
 		t.Fatalf("expected no driver_license_number, got %+v", es)
@@ -207,13 +210,13 @@ func TestDocumentDisambiguation(t *testing.T) {
 	// "Инна Петрова, паспорт 4509 123456" → passport_number
 	es = findAll(t, "Инна Петрова, паспорт 4509 123456")
 	if !hasType(es, PassportNumber) {
-		t.Fatalf("expected passport_number, got %+v", es)
+		t.Fatalf(passportFmt, es)
 	}
 
 	// "Выдать Петрову паспорт 4509 123456" → passport_number
 	es = findAll(t, "Выдать Петрову паспорт 4509 123456")
 	if !hasType(es, PassportNumber) {
-		t.Fatalf("expected passport_number, got %+v", es)
+		t.Fatalf(passportFmt, es)
 	}
 }
 
@@ -491,17 +494,17 @@ func hasFullNameContaining(es []Entity, sub string) bool {
 
 func TestPublicFigureExclusion(t *testing.T) {
 	es := findAll(t, "Поэт Александр Пушкин написал стихи.")
-	if hasFullNameContaining(es, "пушкин") {
+	if hasFullNameContaining(es, pushkin) {
 		t.Fatalf("public figure should be excluded, got %+v", es)
 	}
 
 	es = findAll(t, "Александр Сергеевич Пушкин — поэт.")
-	if hasFullNameContaining(es, "пушкин") {
+	if hasFullNameContaining(es, pushkin) {
 		t.Fatalf("public figure should be excluded, got %+v", es)
 	}
 
 	es = findAll(t, "Клиент Александр Пушкин")
-	if !hasFullNameContaining(es, "пушкин") {
+	if !hasFullNameContaining(es, pushkin) {
 		t.Fatalf("client with public figure name should match, got %+v", es)
 	}
 }

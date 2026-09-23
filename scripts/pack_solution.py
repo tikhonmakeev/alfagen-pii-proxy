@@ -32,13 +32,15 @@ ROOT_FILES = [
 OPTIONAL_DOCS = ["docs/plan.md"]
 
 
-def collect_go_files(subdir):
-    """Собирает все *.go файлы из cmd/ или internal/."""
+def collect_go_files(subdir, exclude=None):
+    """Собирает все *.go файлы из cmd/ или internal/, кроме exclude."""
     base = os.path.join(ROOT, subdir)
     result = []
     if not os.path.isdir(base):
         return result
     for dirpath, _, filenames in os.walk(base):
+        if exclude and os.path.abspath(dirpath).startswith(os.path.abspath(exclude)):
+            continue
         for name in filenames:
             if name.endswith(".go"):
                 rel = os.path.relpath(os.path.join(dirpath, name), ROOT)
@@ -48,7 +50,7 @@ def collect_go_files(subdir):
 
 def main():
     files = list(ROOT_FILES)
-    files += collect_go_files("cmd")
+    files += collect_go_files("cmd", exclude=os.path.join(ROOT, "cmd", "loadtest"))
     files += collect_go_files("internal")
     for doc in OPTIONAL_DOCS:
         if os.path.isfile(os.path.join(ROOT, doc)):

@@ -10,8 +10,8 @@ import (
 
 // Mask заменяет каждую сущность в тексте на токен вида
 // [PII_<hex>_<тип>_<порядковыйномер>]. Все сущности одного вызова
-// используют один и тот же случайный nonce. Возвращает замаскированный
-// текст и map от токена к исходному значению.
+// используют один и тот же случайный nonce. Возвращает
+// замаскированный текст и map от токена к исходному значению.
 func Mask(text string, entities []Entity) (string, map[string]string, error) {
 	if len(entities) == 0 {
 		return text, map[string]string{}, nil
@@ -21,9 +21,27 @@ func Mask(text string, entities []Entity) (string, map[string]string, error) {
 		return "", nil, err
 	}
 
-	// Сортируем по длине span (убывание), затем по Confidence (убывание),
-	// затем по Start (возрастание), чтобы при пересечении оставить самую
-	// длинную сущность, а при равной длине — с большей уверенностью.
+	kept := selectNonOverlapping(entities)
+
+	// Порядковый номер — по порядку появления в тексте.
+	sort.Slice(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
+
+	tokens := make(map[string]string, len(kept))
+	masked := text
+	for i := len(kept) - 1; i >= 0; i-- {
+		e := kept[i]
+		token := fmt.Sprintf("[PII_%s_%s_%d]", nonce, e.Type, i)
+		tokens[token] = e.Value
+		masked = masked[:e.Start] + token + masked[e.End:]
+	}
+	return masked, tokens, nil
+}
+
+// selectNonOverlapping сортирует сущности по длине span (убывание), затем
+// по Confidence (убывание), затем по Start (возрастание) и отбирает
+// непересекающиеся сущности, оставляя при пересечении самую длинную,
+// а при равной длине — с большей уверенностью.
+func selectNonOverlapping(entities []Entity) []Entity {
 	sorted := make([]Entity, len(entities))
 	copy(sorted, entities)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -39,30 +57,22 @@ func Mask(text string, entities []Entity) (string, map[string]string, error) {
 
 	var kept []Entity
 	for _, e := range sorted {
-		overlap := false
-		for _, k := range kept {
-			if e.Start < k.End && k.Start < e.End {
-				overlap = true
-				break
-			}
+		if overlapsAny(e, kept) {
+			continue
 		}
-		if !overlap {
-			kept = append(kept, e)
+		kept = append(kept, e)
+	}
+	return kept
+}
+
+// overlapsAny возвращает true, если сущность e пересекается с любой из kept.
+func overlapsAny(e Entity, kept []Entity) bool {
+	for _, k := range kept {
+		if e.Start < k.End && k.Start < e.End {
+			return true
 		}
 	}
-
-	// Порядковый номер — по порядку появления в тексте.
-	sort.Slice(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
-
-	tokens := make(map[string]string, len(kept))
-	masked := text
-	for i := len(kept) - 1; i >= 0; i-- {
-		e := kept[i]
-		token := fmt.Sprintf("[PII_%s_%s_%d]", nonce, e.Type, i)
-		tokens[token] = e.Value
-		masked = masked[:e.Start] + token + masked[e.End:]
-	}
-	return masked, tokens, nil
+	return false
 }
 
 // Unmask заменяет каждое вхождение каждого токена из tokens на его

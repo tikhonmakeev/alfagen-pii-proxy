@@ -3,6 +3,8 @@
 # с этим файлом (например, в корне репозитория). Удобно для деплоя на
 # слабые серверы: бинарник собирается на машине разработчика, а не на сервере.
 FROM scratch
+LABEL maintainer="pii-proxy-deepseek team"
+LABEL org.opencontainers.image.title="pii-proxy"
 
 # Копируем заранее собранный Linux-бинарник и пример конфигурации.
 COPY piiproxy /piiproxy

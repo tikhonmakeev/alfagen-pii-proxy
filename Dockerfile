@@ -3,6 +3,8 @@
 
 # Этап 1: сборка.
 FROM golang:1.24 AS builder
+LABEL maintainer="pii-proxy-deepseek team"
+LABEL org.opencontainers.image.title="pii-proxy"
 WORKDIR /src
 
 # Копируем модули и подтягиваем зависимости (кэшируется отдельно).
@@ -10,7 +12,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Копируем исходники и собираем статический бинарник.
-COPY . .
+COPY cmd/piiproxy ./cmd/piiproxy
+COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go build -o /piiproxy ./cmd/piiproxy
 
 # Этап 2: минимальный runtime-образ.

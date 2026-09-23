@@ -52,6 +52,15 @@ func Load(path string) (*Registry, error) {
 	return Parse(data)
 }
 
+// rawConsumer — промежуточное представление потребителя из YAML.
+type rawConsumer struct {
+	ID            string   `yaml:"id"`
+	APIKeyEnv     string   `yaml:"api_key_env"`
+	Enabled       bool     `yaml:"enabled"`
+	AllowedTypes  []string `yaml:"allowed_types"`
+	UnmaskEnabled bool     `yaml:"unmask_enabled"`
+}
+
 // Parse разбирает и валидирует реестр потребителей из YAML-данных.
 func Parse(data []byte) (*Registry, error) {
 	if err := validateSingleDocument(data); err != nil {
@@ -59,13 +68,7 @@ func Parse(data []byte) (*Registry, error) {
 	}
 
 	var raw struct {
-		Consumers []struct {
-			ID            string   `yaml:"id"`
-			APIKeyEnv     string   `yaml:"api_key_env"`
-			Enabled       bool     `yaml:"enabled"`
-			AllowedTypes  []string `yaml:"allowed_types"`
-			UnmaskEnabled bool     `yaml:"unmask_enabled"`
-		} `yaml:"consumers"`
+		Consumers []rawConsumer `yaml:"consumers"`
 	}
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
 	dec.KnownFields(true)
@@ -84,36 +87,9 @@ func Parse(data []byte) (*Registry, error) {
 	seenKeys := make(map[string]string, len(raw.Consumers))
 
 	for i, rc := range raw.Consumers {
-		if !idRe.MatchString(rc.ID) {
-			return nil, fmt.Errorf("consumer %d: invalid id %q", i, rc.ID)
-		}
-		if _, dup := reg.byID[rc.ID]; dup {
-			return nil, fmt.Errorf("duplicate consumer id %q", rc.ID)
-		}
-
-		apiKey := os.Getenv(rc.APIKeyEnv)
-		if apiKey != "" {
-			if prev, dup := seenKeys[apiKey]; dup {
-				return nil, fmt.Errorf("consumer %q and %q share the same api key", prev, rc.ID)
-			}
-			seenKeys[apiKey] = rc.ID
-		}
-
-		allowed := make([]pii.Type, 0, len(rc.AllowedTypes))
-		for _, t := range rc.AllowedTypes {
-			pt := pii.Type(t)
-			if !knownType(pt) {
-				return nil, fmt.Errorf("consumer %q: unknown allowed type %q", rc.ID, t)
-			}
-			allowed = append(allowed, pt)
-		}
-
-		c := &Consumer{
-			ID:            rc.ID,
-			APIKey:        apiKey,
-			Enabled:       rc.Enabled,
-			AllowedTypes:  allowed,
-			UnmaskEnabled: rc.UnmaskEnabled,
+		c, err := validateConsumer(i, rc, reg, seenKeys)
+		if err != nil {
+			return nil, err
 		}
 		reg.consumers = append(reg.consumers, c)
 		reg.byID[c.ID] = c
@@ -122,6 +98,50 @@ func Parse(data []byte) (*Registry, error) {
 		}
 	}
 	return reg, nil
+}
+
+// validateConsumer проверяет одного потребителя и строит его Consumer.
+func validateConsumer(i int, rc rawConsumer, reg *Registry, seenKeys map[string]string) (*Consumer, error) {
+	if !idRe.MatchString(rc.ID) {
+		return nil, fmt.Errorf("consumer %d: invalid id %q", i, rc.ID)
+	}
+	if _, dup := reg.byID[rc.ID]; dup {
+		return nil, fmt.Errorf("duplicate consumer id %q", rc.ID)
+	}
+
+	apiKey := os.Getenv(rc.APIKeyEnv)
+	if apiKey != "" {
+		if prev, dup := seenKeys[apiKey]; dup {
+			return nil, fmt.Errorf("consumer %q and %q share the same api key", prev, rc.ID)
+		}
+		seenKeys[apiKey] = rc.ID
+	}
+
+	allowed, err := parseAllowedTypes(rc.ID, rc.AllowedTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Consumer{
+		ID:            rc.ID,
+		APIKey:        apiKey,
+		Enabled:       rc.Enabled,
+		AllowedTypes:  allowed,
+		UnmaskEnabled: rc.UnmaskEnabled,
+	}, nil
+}
+
+// parseAllowedTypes преобразует список типов из строк в pii.Type.
+func parseAllowedTypes(id string, types []string) ([]pii.Type, error) {
+	allowed := make([]pii.Type, 0, len(types))
+	for _, t := range types {
+		pt := pii.Type(t)
+		if !knownType(pt) {
+			return nil, fmt.Errorf("consumer %q: unknown allowed type %q", id, t)
+		}
+		allowed = append(allowed, pt)
+	}
+	return allowed, nil
 }
 
 // Authenticate возвращает потребителя по API-ключу, если он найден и

@@ -148,25 +148,9 @@ func (d *pinDetectorImpl) Find(text string) []Entity {
 	lower := strings.ToLower(text)
 	var out []Entity
 	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
-		labelEnd := m[3]
-		start, end := m[4], m[5]
-		if start < 0 || end < 0 {
-			continue
+		if e, ok := entityFromLabelMatch(m, text, lower, PIN, 0.98); ok {
+			out = append(out, e)
 		}
-		if labelEnd < len(lower) {
-			c := lower[labelEnd]
-			// ASCII-буква или старший байт кириллической буквы (0xD0/0xD1).
-			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == 0xD0 || c == 0xD1 {
-				continue
-			}
-		}
-		out = append(out, Entity{
-			Type:       PIN,
-			Start:      start,
-			End:        end,
-			Value:      text[start:end],
-			Confidence: 0.98,
-		})
 	}
 	return out
 }
@@ -188,26 +172,43 @@ func (d *innDetectorImpl) Find(text string) []Entity {
 	lower := strings.ToLower(text)
 	var out []Entity
 	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
-		labelEnd := m[3]
-		start, end := m[4], m[5]
-		if start < 0 || end < 0 {
-			continue
+		if e, ok := entityFromLabelMatch(m, text, lower, Inn, 0.98); ok {
+			out = append(out, e)
 		}
-		if labelEnd < len(lower) {
-			c := lower[labelEnd]
-			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == 0xD0 || c == 0xD1 {
-				continue
-			}
-		}
-		out = append(out, Entity{
-			Type:       Inn,
-			Start:      start,
-			End:        end,
-			Value:      text[start:end],
-			Confidence: 0.98,
-		})
 	}
 	return out
+}
+
+// followedByLetter возвращает true, если в позиции idx в lower стоит буква
+// (ASCII или кириллица). Кириллица в UTF-8 — многобайтовая, поэтому
+// проверяется старший байт (0xD0/0xD1).
+func followedByLetter(lower string, idx int) bool {
+	if idx >= len(lower) {
+		return false
+	}
+	c := lower[idx]
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == 0xD0 || c == 0xD1
+}
+
+// entityFromLabelMatch строит Entity из совпадения регулярки с меткой
+// (группа 1 — метка, группа 2 — значение). Возвращает false, если
+// совпадение невалидно или сразу после метки идёт буква.
+func entityFromLabelMatch(m []int, text, lower string, typ Type, conf float64) (Entity, bool) {
+	labelEnd := m[3]
+	start, end := m[4], m[5]
+	if start < 0 || end < 0 {
+		return Entity{}, false
+	}
+	if followedByLetter(lower, labelEnd) {
+		return Entity{}, false
+	}
+	return Entity{
+		Type:       typ,
+		Start:      start,
+		End:        end,
+		Value:      text[start:end],
+		Confidence: conf,
+	}, true
 }
 
 func passportNumberDetector() Detector {
