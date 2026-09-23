@@ -30,6 +30,11 @@ func TestPhone(t *testing.T) {
 		{"тел. 89991234567", "89991234567"},
 		{"мобильный 8 999 123-45-67", "8 999 123-45-67"},
 		{"+79991234567", "+79991234567"},
+		{"8-903-123-45-67", "8-903-123-45-67"},
+		{"8 (903) 123-45-67", "8 (903) 123-45-67"},
+		{"+7-903-123-45-67", "+7-903-123-45-67"},
+		{"+7 999 111-22-33", "+7 999 111-22-33"},
+		{"89161234567", "89161234567"},
 	} {
 		e := findFirst(t, phoneDetector(), tc.in)
 		if e.Value != tc.want {
@@ -52,16 +57,44 @@ func TestCardNumber(t *testing.T) {
 }
 
 func TestCVV(t *testing.T) {
-	e := findFirst(t, cvvDetector(), "CVV: 123")
-	if e.Value != "123" {
-		t.Fatalf("got %q", e.Value)
+	for _, tc := range []struct{ in, want string }{
+		{"CVV: 123", "123"},
+		{"cvv2 456", "456"},
+		{"CVC: 789", "789"},
+		{"cvc2 012", "012"},
+		{"Код безопасности 789 на обороте", "789"},
+		{"cvv-код 345", "345"},
+		{"cvc-код 678", "678"},
+	} {
+		e := findFirst(t, cvvDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+		}
 	}
 }
 
 func TestPIN(t *testing.T) {
-	e := findFirst(t, pinDetector(), "ПИН-код: 9876")
-	if e.Value != "9876" {
-		t.Fatalf("got %q", e.Value)
+	for _, tc := range []struct{ in, want string }{
+		{"ПИН-код: 9876", "9876"},
+		{"Мой пин 4321", "4321"},
+		{"ПИН-код карты: 0000", "0000"},
+		{"PIN: 9876", "9876"},
+		{"пин код 1234", "1234"},
+		{"пинкод 5678", "5678"},
+		{"pin-код 1111", "1111"},
+		{"ПИН от карты: 2222", "2222"},
+	} {
+		e := findFirst(t, pinDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestPINNoFalsePositive(t *testing.T) {
+	es := pinDetector().Find("пингвин 1234")
+	if len(es) != 0 {
+		t.Fatalf("пингвин should not match PIN, got %+v", es)
 	}
 }
 
@@ -114,6 +147,7 @@ func TestBirthDate(t *testing.T) {
 		{"12 января 1990", "12 января 1990"},
 		{"12 января 1990 года", "12 января 1990 года"},
 		{"12 января 1990 г.", "12 января 1990 г."},
+		{"дата рождения: 31-12-1990", "31-12-1990"},
 	} {
 		e := findFirst(t, birthDateDetector(), tc.in)
 		if e.Value != tc.want {
@@ -122,10 +156,35 @@ func TestBirthDate(t *testing.T) {
 	}
 }
 
+func TestBirthDateNoFalsePositive(t *testing.T) {
+	// Хвост телефона "23-45-67" не должен считаться датой.
+	es := birthDateDetector().Find("Телефон 8-903-123-45-67")
+	if len(es) != 0 {
+		t.Fatalf("phone tail should not match birth date, got %+v", es)
+	}
+	// Дефисный формат с 2-значным годом не принимается.
+	es = birthDateDetector().Find("дата рождения: 31-12-90")
+	if len(es) != 0 {
+		t.Fatalf("2-digit year hyphen date should not match, got %+v", es)
+	}
+}
+
 func TestPassportIssueDate(t *testing.T) {
-	e := findFirst(t, passportIssueDateDetector(), "Дата выдачи: 21.09.2010")
-	if e.Value != "21.09.2010" {
-		t.Fatalf("got %q", e.Value)
+	for _, tc := range []struct{ in, want string }{
+		{"Дата выдачи: 21.09.2010", "21.09.2010"},
+		{"Дата выдачи: 21-09-2010", "21-09-2010"},
+	} {
+		e := findFirst(t, passportIssueDateDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestPassportIssueDateNoFalsePositive(t *testing.T) {
+	es := passportIssueDateDetector().Find("Телефон 8-903-123-45-67")
+	if len(es) != 0 {
+		t.Fatalf("phone tail should not match issue date, got %+v", es)
 	}
 }
 

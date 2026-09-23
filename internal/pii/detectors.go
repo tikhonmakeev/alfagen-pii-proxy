@@ -100,8 +100,9 @@ func emailDetector() Detector {
 }
 
 func phoneDetector() Detector {
-	// +7 (999) 123-45-67, 8 999 123-45-67, 89991234567, 79991234567
-	re := regexp.MustCompile(`(?:(?:тел\.?|мобильный|phone)\s*[:.\-]?\s*)?((?:\+?7|8)\s?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})\b`)
+	// +7 (999) 123-45-67, 8 999 123-45-67, 89991234567, 79991234567,
+	// 8-903-123-45-67, +7-903-123-45-67, +7 999 111-22-33
+	re := regexp.MustCompile(`(?:(?:тел\.?|мобильный|phone)\s*[:.\-]?\s*)?((?:\+?7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})\b`)
 	return &labelValueDetector{
 		typ:  Phone,
 		re:   re,
@@ -120,7 +121,7 @@ func cardNumberDetector() Detector {
 }
 
 func cvvDetector() Detector {
-	re := regexp.MustCompile(`\b(?:cvv2?|cvc2?|код\s+безопасности)\s*[:.\-]?\s*(\d{3,4})\b`)
+	re := regexp.MustCompile(`(?:cvv2?|cvc2?|код\s+безопасности|cvv-код|cvc-код)\s*[:.\-]?\s*(\d{3,4})\b`)
 	return &labelValueDetector{
 		typ:  CVV,
 		re:   re,
@@ -129,12 +130,43 @@ func cvvDetector() Detector {
 }
 
 func pinDetector() Detector {
-	re := regexp.MustCompile(`(?:пин[\-\s]?код|pin)\s*[:.\-]?\s*(\d{4,6})\b`)
-	return &labelValueDetector{
-		typ:  PIN,
-		re:   re,
-		conf: 0.98,
+	re := regexp.MustCompile(`(пин-код|пин\s+код|пинкод|pin-код|pin|пин)\s*(?:карты|от\s+карты)?\s*[:.\-]?\s*(\d{4,6})\b`)
+	return &pinDetectorImpl{re: re}
+}
+
+// pinDetectorImpl — детектор ПИН-кода. Отбрасывает совпадение, если сразу
+// после метки идёт буква (например "пингвин 1234").
+type pinDetectorImpl struct {
+	re *regexp.Regexp
+}
+
+func (d *pinDetectorImpl) Type() Type { return PIN }
+
+func (d *pinDetectorImpl) Find(text string) []Entity {
+	lower := strings.ToLower(text)
+	var out []Entity
+	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
+		labelEnd := m[1]
+		start, end := m[4], m[5]
+		if start < 0 || end < 0 {
+			continue
+		}
+		if labelEnd < len(lower) {
+			c := lower[labelEnd]
+			// ASCII-буква или старший байт кириллической буквы (0xD0/0xD1).
+			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == 0xD0 || c == 0xD1 {
+				continue
+			}
+		}
+		out = append(out, Entity{
+			Type:       PIN,
+			Start:      start,
+			End:        end,
+			Value:      text[start:end],
+			Confidence: 0.98,
+		})
 	}
+	return out
 }
 
 func innDetector() Detector {
@@ -178,21 +210,49 @@ func departmentCodeDetector() Detector {
 func birthDateDetector() Detector {
 	// Любая дата в форматах: дд.мм.гггг, мм/дд/гггг, гггг.дд.мм,
 	// день месяц-словом год (с вариантами "года"/"г.")
-	re := regexp.MustCompile(`(?:(?:дата\s+рождения|родился|родилась|д\.р\.)\s*[:.\-]?\s*)?(\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}|\d{4}[./\-]\d{1,2}[./\-]\d{1,2}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{2,4}(?:\s+г(?:ода)?\.?)?)`)
-	return &labelValueDetector{
-		typ:  BirthDate,
-		re:   re,
-		conf: 0.85,
-	}
+	// Дефисный формат дд-мм-гггг принимается только с 4-значным годом.
+	re := regexp.MustCompile(`(?:(?:дата\s+рождения|родился|родилась|д\.р\.)\s*[:.\-]?\s*)?(\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{4}[./]\d{1,2}[./]\d{1,2}|\d{1,2}-\d{1,2}-\d{4}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{2,4}(?:\s+г(?:ода)?\.?)?)`)
+	return &dateDetectorImpl{typ: BirthDate, re: re, conf: 0.85}
 }
 
 func passportIssueDateDetector() Detector {
-	re := regexp.MustCompile(`(?:дата\s+выдачи(?:\s+паспорта)?|выдан|выдана|выдача)\s*[:.\-]?\s*(\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}|\d{4}[./\-]\d{1,2}[./\-]\d{1,2}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{2,4}(?:\s+г(?:ода)?\.?)?)`)
-	return &labelValueDetector{
-		typ:  PassportIssueDate,
-		re:   re,
-		conf: 0.9,
+	re := regexp.MustCompile(`(?:дата\s+выдачи(?:\s+паспорта)?|выдан|выдана|выдача)\s*[:.\-]?\s*(\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{4}[./]\d{1,2}[./]\d{1,2}|\d{1,2}-\d{1,2}-\d{4}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{2,4}(?:\s+г(?:ода)?\.?)?)`)
+	return &dateDetectorImpl{typ: PassportIssueDate, re: re, conf: 0.9}
+}
+
+// dateDetectorImpl — детектор даты, отбрасывающий совпадение, если символ
+// сразу перед датой — цифра, "-" или ")" (например хвост телефона "23-45-67").
+type dateDetectorImpl struct {
+	typ  Type
+	re   *regexp.Regexp
+	conf float64
+}
+
+func (d *dateDetectorImpl) Type() Type { return d.typ }
+
+func (d *dateDetectorImpl) Find(text string) []Entity {
+	lower := strings.ToLower(text)
+	var out []Entity
+	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
+		start, end := m[2], m[3]
+		if start < 0 || end < 0 {
+			continue
+		}
+		if start > 0 {
+			prev := lower[start-1]
+			if prev >= '0' && prev <= '9' || prev == '-' || prev == ')' {
+				continue
+			}
+		}
+		out = append(out, Entity{
+			Type:       d.typ,
+			Start:      start,
+			End:        end,
+			Value:      text[start:end],
+			Confidence: d.conf,
+		})
 	}
+	return out
 }
 
 func postalCodeDetector() Detector {
