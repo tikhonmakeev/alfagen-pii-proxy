@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+const (
+	maskErrFmt = "Mask error: %v"
+	gotQFmt    = "got %q"
+	ivanPetrov = "Иван Петров"
+)
+
 func TestMaskRoundTrip(t *testing.T) {
 	text := "Клиент Иванов Иван Иванович, телефон +7 (999) 123-45-67, почта ivan@example.org"
 	entities := []Entity{
@@ -14,7 +20,7 @@ func TestMaskRoundTrip(t *testing.T) {
 	}
 	masked, tokens, err := Mask(text, entities)
 	if err != nil {
-		t.Fatalf("Mask error: %v", err)
+		t.Fatalf(maskErrFmt, err)
 	}
 	if len(tokens) != 3 {
 		t.Fatalf("expected 3 tokens, got %d", len(tokens))
@@ -28,12 +34,12 @@ func TestMaskRoundTrip(t *testing.T) {
 func TestMaskSharedNonce(t *testing.T) {
 	text := "Иван Петров и Анна Иванова"
 	entities := []Entity{
-		{Type: FullName, Start: 0, End: 21, Value: "Иван Петров"},
+		{Type: FullName, Start: 0, End: 21, Value: ivanPetrov},
 		{Type: FullName, Start: 25, End: 48, Value: "Анна Иванова"},
 	}
 	_, tokens, err := Mask(text, entities)
 	if err != nil {
-		t.Fatalf("Mask error: %v", err)
+		t.Fatalf(maskErrFmt, err)
 	}
 	var nonces []string
 	for token := range tokens {
@@ -52,12 +58,12 @@ func TestMaskSharedNonce(t *testing.T) {
 func TestMaskReorderedRepeatedTokens(t *testing.T) {
 	text := "Иван Петров и Анна Иванова"
 	entities := []Entity{
-		{Type: FullName, Start: 0, End: 21, Value: "Иван Петров"},
+		{Type: FullName, Start: 0, End: 21, Value: ivanPetrov},
 		{Type: FullName, Start: 25, End: 48, Value: "Анна Иванова"},
 	}
 	_, tokens, err := Mask(text, entities)
 	if err != nil {
-		t.Fatalf("Mask error: %v", err)
+		t.Fatalf(maskErrFmt, err)
 	}
 	var tokList []string
 	for token := range tokens {
@@ -78,12 +84,12 @@ func TestMaskReorderedRepeatedTokens(t *testing.T) {
 func TestMaskOverlapping(t *testing.T) {
 	text := "Иван Петров Иванович"
 	entities := []Entity{
-		{Type: FullName, Start: 0, End: 21, Value: "Иван Петров"},
+		{Type: FullName, Start: 0, End: 21, Value: ivanPetrov},
 		{Type: FullName, Start: 9, End: 38, Value: "Петров Иванович"},
 	}
 	masked, tokens, err := Mask(text, entities)
 	if err != nil {
-		t.Fatalf("Mask error: %v", err)
+		t.Fatalf(maskErrFmt, err)
 	}
 	if len(tokens) != 1 {
 		t.Fatalf("expected 1 token after overlap resolution, got %d", len(tokens))
@@ -98,7 +104,7 @@ func TestMaskEmptyEntities(t *testing.T) {
 	text := "Просто текст без персональных данных."
 	masked, tokens, err := Mask(text, nil)
 	if err != nil {
-		t.Fatalf("Mask error: %v", err)
+		t.Fatalf(maskErrFmt, err)
 	}
 	if masked != text {
 		t.Fatalf("expected unchanged text, got %q", masked)

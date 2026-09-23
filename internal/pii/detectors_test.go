@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+const (
+	forGotWantFmt = "for %q got %q, want %q"
+	inn7707083893 = "7707083893"
+	passport4509  = "4509 123456"
+	vu7701123456  = "В/У: 7701123456"
+	dept770001    = "770-001"
+)
+
 func findFirst(t *testing.T, d Detector, text string) Entity {
 	t.Helper()
 	es := d.Find(text)
@@ -17,7 +25,7 @@ func findFirst(t *testing.T, d Detector, text string) Entity {
 func TestEmail(t *testing.T) {
 	e := findFirst(t, emailDetector(), "Почта: test.person@example.org")
 	if e.Value != "test.person@example.org" {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 	if e.Type != Email {
 		t.Fatalf("got type %q", e.Type)
@@ -38,7 +46,7 @@ func TestPhone(t *testing.T) {
 	} {
 		e := findFirst(t, phoneDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -51,7 +59,7 @@ func TestCardNumber(t *testing.T) {
 	} {
 		e := findFirst(t, cardNumberDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -68,7 +76,7 @@ func TestCVV(t *testing.T) {
 	} {
 		e := findFirst(t, cvvDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -86,7 +94,7 @@ func TestPIN(t *testing.T) {
 	} {
 		e := findFirst(t, pinDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -101,14 +109,14 @@ func TestPINNoFalsePositive(t *testing.T) {
 func TestINN(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"ИНН: 123456789012", "123456789012"},
-		{"ИНН клиента 7707083893", "7707083893"},
-		{"ИНН физлица 7707083893", "7707083893"},
-		{"ИНН получателя 7707083893", "7707083893"},
-		{"ИНН организации 7707083893", "7707083893"},
+		{"ИНН клиента 7707083893", inn7707083893},
+		{"ИНН физлица 7707083893", inn7707083893},
+		{"ИНН получателя 7707083893", inn7707083893},
+		{"ИНН организации 7707083893", inn7707083893},
 	} {
 		e := findFirst(t, innDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -122,15 +130,15 @@ func TestINNNoFalsePositive(t *testing.T) {
 
 func TestPassportNumber(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"Паспорт 4509 123456", "4509 123456"},
+		{"Паспорт 4509 123456", passport4509},
 		{"паспорт серия 4509 номер 123456", "4509 номер 123456"},
 		{"У него паспорт серии 45 09 номер 123456", "45 09 номер 123456"},
 		{"паспорт 4509123456", "4509123456"},
-		{"4509 123456", "4509 123456"},
+		{passport4509, passport4509},
 	} {
 		e := findFirst(t, passportNumberDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -138,21 +146,21 @@ func TestPassportNumber(t *testing.T) {
 func TestDriverLicense(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"Водительское удостоверение 77 01 123456", "77 01 123456"},
-		{"В/У: 7701123456", "7701123456"},
+		{vu7701123456, "7701123456"},
 		{"ВУ 99 12 345678 категории B", "99 12 345678"},
 		{"вод. удостоверение 7701 123456", "7701 123456"},
 		{"права: 77 01 123456", "77 01 123456"},
 	} {
 		e := findFirst(t, driverLicenseDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
 
 func TestDocumentDisambiguation(t *testing.T) {
-	// "В/У: 7701123456" → только driver_license_number
-	es := findAll(t, "В/У: 7701123456")
+	// vu7701123456 → только driver_license_number
+	es := findAll(t, vu7701123456)
 	if !hasType(es, DriverLicenseNumber) {
 		t.Fatalf("expected driver_license_number, got %+v", es)
 	}
@@ -211,12 +219,12 @@ func TestDocumentDisambiguation(t *testing.T) {
 
 func TestDepartmentCode(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"Код подразделения: 770-001", "770-001"},
-		{"770-001", "770-001"},
+		{"Код подразделения: 770-001", dept770001},
+		{dept770001, dept770001},
 	} {
 		e := findFirst(t, departmentCodeDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -233,7 +241,7 @@ func TestBirthDate(t *testing.T) {
 	} {
 		e := findFirst(t, birthDateDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -258,7 +266,7 @@ func TestPassportIssueDate(t *testing.T) {
 	} {
 		e := findFirst(t, passportIssueDateDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -278,7 +286,7 @@ func TestPostalCode(t *testing.T) {
 	} {
 		e := findFirst(t, postalCodeDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -302,7 +310,7 @@ func TestCountry(t *testing.T) {
 	} {
 		e := findFirst(t, countryDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -310,7 +318,7 @@ func TestCountry(t *testing.T) {
 func TestCity(t *testing.T) {
 	e := findFirst(t, cityDetector(), "Город: Казань")
 	if e.Value != "Казань" {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 }
 
@@ -322,7 +330,7 @@ func TestStreet(t *testing.T) {
 	} {
 		e := findFirst(t, streetDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -345,7 +353,7 @@ func TestAddress(t *testing.T) {
 	} {
 		e := findFirst(t, addressDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -353,21 +361,21 @@ func TestAddress(t *testing.T) {
 func TestCitizenship(t *testing.T) {
 	e := findFirst(t, citizenshipDetector(), "Гражданство: Российская Федерация")
 	if e.Value != "Российская Федерация" {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 }
 
 func TestBirthPlace(t *testing.T) {
 	e := findFirst(t, birthPlaceDetector(), "Место рождения: г. Казань")
 	if e.Value != "г. Казань" {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 }
 
 func TestIssuingAuthority(t *testing.T) {
 	e := findFirst(t, issuingAuthorityDetector(), "Паспорт выдан ОВД района Арбат;")
 	if e.Value != "ОВД района Арбат" {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 }
 
@@ -436,7 +444,7 @@ func TestFullNameLabeled(t *testing.T) {
 	} {
 		e := findFirst(t, fullNameLabeledDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -448,7 +456,7 @@ func TestFullNameSurnameFirst(t *testing.T) {
 	} {
 		e := findFirst(t, fullNameSurnameFirstDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -456,7 +464,7 @@ func TestFullNameSurnameFirst(t *testing.T) {
 func TestFullNameGivenFirst(t *testing.T) {
 	e := findFirst(t, fullNameGivenFirstDetector(), "Иван Иванович Иванов подписал документ.")
 	if e.Value != "Иван Иванович Иванов" {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 }
 
@@ -467,7 +475,7 @@ func TestFullNamePair(t *testing.T) {
 	} {
 		e := findFirst(t, namePairDetector(), tc.in)
 		if e.Value != tc.want {
-			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
@@ -501,14 +509,14 @@ func TestPublicFigureExclusion(t *testing.T) {
 func TestCardholderName(t *testing.T) {
 	e := findFirst(t, cardholderNameDetector(), "Cardholder: IVAN IVANOV")
 	if e.Value != "IVAN IVANOV" {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 }
 
 func TestAddressDativeCase(t *testing.T) {
 	e := findFirst(t, addressDetector(), "Выезд специалиста по адресу: Новосибирск, Гоголя 10-3.")
 	if e.Value != "Новосибирск, Гоголя 10-3." {
-		t.Fatalf("got %q", e.Value)
+		t.Fatalf(gotQFmt, e.Value)
 	}
 }
 

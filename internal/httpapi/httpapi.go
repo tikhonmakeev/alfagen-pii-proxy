@@ -21,6 +21,11 @@ import (
 	"github.com/tihon/pii-proxy-deepseek/internal/store"
 )
 
+const (
+	directionMask   = "mask"
+	directionReject = "reject"
+)
+
 // Server — HTTP-слой сервиса.
 type Server struct {
 	detectors      []pii.Detector
@@ -103,7 +108,7 @@ func (s *Server) healthzHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	status := http.StatusOK
-	direction := "mask"
+	direction := directionMask
 	var foundTypes []string
 	payloadRunes := 0
 	payloadID := ""
@@ -118,13 +123,13 @@ func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 	var req processRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		status = http.StatusBadRequest
-		direction = "reject"
+		direction = directionReject
 		s.writeResult(w, status, "invalid json")
 		return
 	}
 	if req.Payload == "" || req.PayloadID == "" {
 		status = http.StatusBadRequest
-		direction = "reject"
+		direction = directionReject
 		s.writeResult(w, status, "missing fields")
 		return
 	}
@@ -134,7 +139,7 @@ func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 	consumer, ok := s.authenticate(r)
 	if !ok {
 		status = http.StatusUnauthorized
-		direction = "reject"
+		direction = directionReject
 		s.writeResult(w, status, "unauthorized")
 		return
 	}
@@ -150,7 +155,7 @@ func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 		}()
 	default:
 		status = http.StatusTooManyRequests
-		direction = "reject"
+		direction = directionReject
 		w.Header().Set("Retry-After", "1")
 		s.writeResult(w, status, "overloaded")
 		return
@@ -161,7 +166,7 @@ func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 		masked, tokens, types, err := s.maskPayload(req.Payload, consumer)
 		if err != nil {
 			status = http.StatusServiceUnavailable
-			direction = "reject"
+			direction = directionReject
 			s.writeResult(w, status, "internal error")
 			return
 		}
@@ -171,18 +176,18 @@ func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 				<-s.inflight
 				slotAcquired = false
 				status = http.StatusTooManyRequests
-				direction = "reject"
+				direction = directionReject
 				w.Header().Set("Retry-After", "1")
 				s.writeResult(w, status, "overloaded")
 				return
 			}
 			status = http.StatusServiceUnavailable
-			direction = "reject"
+			direction = directionReject
 			s.writeResult(w, status, "internal error")
 			return
 		}
 		status = http.StatusOK
-		direction = "mask"
+		direction = directionMask
 		s.writeResult(w, status, masked)
 		return
 	}
@@ -190,7 +195,7 @@ func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256([]byte(req.Payload))
 	if hash == rec.SourceHash {
 		status = http.StatusOK
-		direction = "mask"
+		direction = directionMask
 		s.writeResult(w, status, rec.Masked)
 		return
 	}
@@ -198,13 +203,13 @@ func (s *Server) processHandler(w http.ResponseWriter, r *http.Request) {
 	direction = "unmask"
 	if !consumer.UnmaskEnabled {
 		status = http.StatusForbidden
-		direction = "reject"
+		direction = directionReject
 		s.writeResult(w, status, "forbidden")
 		return
 	}
 	if !containsAnyToken(req.Payload, rec.Tokens) {
 		status = http.StatusConflict
-		direction = "reject"
+		direction = directionReject
 		s.writeResult(w, status, "conflict")
 		return
 	}

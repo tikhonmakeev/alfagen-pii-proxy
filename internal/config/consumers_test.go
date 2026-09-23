@@ -8,6 +8,18 @@ import (
 	"github.com/tihon/pii-proxy-deepseek/internal/pii"
 )
 
+const (
+	secretA    = "secret-a"
+	secretB    = "secret-b"
+	envKeyA    = "KEY_A"
+	envKeyB    = "KEY_B"
+	loadErrFmt = "Load error: %v"
+	sysA       = "system_a"
+	sysB       = "system_b"
+	sysC       = "system_c"
+	sys        = "sys"
+)
+
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -19,8 +31,8 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 func TestLoadValid(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
-	t.Setenv("KEY_B", "secret-b")
+	t.Setenv(envKeyA, secretA)
+	t.Setenv(envKeyB, secretB)
 	t.Setenv("KEY_C", "secret-c")
 
 	path := writeConfig(t, `
@@ -43,13 +55,13 @@ consumers:
 `)
 	reg, err := Load(path)
 	if err != nil {
-		t.Fatalf("Load error: %v", err)
+		t.Fatalf(loadErrFmt, err)
 	}
 
-	if c, ok := reg.Authenticate("secret-a"); !ok || c.ID != "system_a" {
+	if c, ok := reg.Authenticate(secretA); !ok || c.ID != sysA {
 		t.Fatalf("authenticate system_a failed: %+v ok=%v", c, ok)
 	}
-	if c, ok := reg.Authenticate("secret-b"); !ok || c.ID != "system_b" {
+	if c, ok := reg.Authenticate(secretB); !ok || c.ID != sysB {
 		t.Fatalf("authenticate system_b failed: %+v ok=%v", c, ok)
 	}
 	// system_c disabled → not authenticated
@@ -59,7 +71,7 @@ consumers:
 	if _, ok := reg.Authenticate("wrong-key"); ok {
 		t.Fatal("unknown key should not authenticate")
 	}
-	if c, ok := reg.ByID("system_c"); !ok || c.ID != "system_c" {
+	if c, ok := reg.ByID(sysC); !ok || c.ID != sysC {
 		t.Fatalf("ByID system_c failed: %+v ok=%v", c, ok)
 	}
 }
@@ -72,8 +84,8 @@ func TestEmptyConsumers(t *testing.T) {
 }
 
 func TestDuplicateID(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
-	t.Setenv("KEY_B", "secret-b")
+	t.Setenv(envKeyA, secretA)
+	t.Setenv(envKeyB, secretB)
 	path := writeConfig(t, `
 consumers:
   - id: dup
@@ -89,7 +101,7 @@ consumers:
 }
 
 func TestInvalidID(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
+	t.Setenv(envKeyA, secretA)
 	path := writeConfig(t, `
 consumers:
   - id: "bad id"
@@ -116,7 +128,7 @@ consumers:
 }
 
 func TestUnknownType(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
+	t.Setenv(envKeyA, secretA)
 	path := writeConfig(t, `
 consumers:
   - id: sys
@@ -130,7 +142,7 @@ consumers:
 }
 
 func TestMultipleDocuments(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
+	t.Setenv(envKeyA, secretA)
 	path := writeConfig(t, `
 consumers:
   - id: sys
@@ -148,7 +160,7 @@ consumers:
 }
 
 func TestUnknownField(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
+	t.Setenv(envKeyA, secretA)
 	path := writeConfig(t, `
 consumers:
   - id: sys
@@ -162,8 +174,8 @@ consumers:
 }
 
 func TestDuplicateAPIKey(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
-	t.Setenv("KEY_B", "secret-a")
+	t.Setenv(envKeyA, secretA)
+	t.Setenv(envKeyB, secretA)
 	path := writeConfig(t, `
 consumers:
   - id: sys_a
@@ -196,7 +208,7 @@ func TestAllowsTypeExplicit(t *testing.T) {
 }
 
 func TestUnmaskEnabledField(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
+	t.Setenv(envKeyA, secretA)
 	path := writeConfig(t, `
 consumers:
   - id: sys
@@ -206,9 +218,9 @@ consumers:
 `)
 	reg, err := Load(path)
 	if err != nil {
-		t.Fatalf("Load error: %v", err)
+		t.Fatalf(loadErrFmt, err)
 	}
-	c, ok := reg.ByID("sys")
+	c, ok := reg.ByID(sys)
 	if !ok {
 		t.Fatal("consumer not found")
 	}
@@ -228,7 +240,7 @@ consumers:
 `)
 	reg, err := Load(path)
 	if err != nil {
-		t.Fatalf("Load error: %v", err)
+		t.Fatalf(loadErrFmt, err)
 	}
 	if _, ok := reg.Authenticate(""); ok {
 		t.Fatal("Authenticate(\"\") should return false")
@@ -243,7 +255,7 @@ consumers:
 }
 
 func TestAuthenticateEmptyAlwaysFalse(t *testing.T) {
-	t.Setenv("KEY_A", "secret-a")
+	t.Setenv(envKeyA, secretA)
 	t.Setenv("NOT_SET_ENV_VAR", "")
 	path := writeConfig(t, `
 consumers:
@@ -256,7 +268,7 @@ consumers:
 `)
 	reg, err := Load(path)
 	if err != nil {
-		t.Fatalf("Load error: %v", err)
+		t.Fatalf(loadErrFmt, err)
 	}
 	if _, ok := reg.Authenticate(""); ok {
 		t.Fatal("Authenticate(\"\") should always return false")
