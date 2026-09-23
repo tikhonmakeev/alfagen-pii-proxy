@@ -221,7 +221,7 @@ func houseFlatDetector() Detector {
 }
 
 func addressDetector() Detector {
-	re := regexp.MustCompile(`(?:(?:адрес\s+(?:проживания|регистрации|клиента)|адрес(?:[^а-яa-z0-9]|$))|проживает|зарегистрирован(?:а)?)\s*[:.\-]?\s*([^;\n]{3,180})`)
+	re := regexp.MustCompile(`(?:(?:адрес(?:а|у|ом|е)?(?:[^а-яa-z0-9]|$)|адрес\s+(?:проживания|регистрации|клиента))|проживает|зарегистрирован(?:а)?)\s*[:.\-]?\s*([^;\n]{3,180})`)
 	return &addressDetectorImpl{re: re}
 }
 
@@ -312,6 +312,11 @@ func (d *addressDetectorImpl) Find(text string) []Entity {
 		val := strings.TrimRight(text[start:end], " \t")
 		end = start + len(val)
 		if isBankSegment(lower, start) {
+			continue
+		}
+		// Полный адрес почти всегда содержит номер дома/цифру.
+		// Это отсекает ложные срабатывания вроде "по адресу проживания клиента".
+		if !strings.ContainsAny(val, "0123456789") {
 			continue
 		}
 		out = append(out, Entity{
@@ -419,7 +424,7 @@ func (d *namePairDetectorImpl) Find(text string) []Entity {
 	return out
 }
 
-var cyrillicWordRe = regexp.MustCompile(`[А-Яа-яЁё]+`)
+var cyrillicWordRe = regexp.MustCompile(`[А-Яа-яЁё]+(?:-[А-Яа-яЁё]+)?`)
 
 var commonNames = map[string]bool{
 	"александр": true, "алексей": true, "андрей": true, "анна": true,

@@ -339,3 +339,27 @@ func TestCardholderName(t *testing.T) {
 		t.Fatalf("got %q", e.Value)
 	}
 }
+
+func TestAddressDativeCase(t *testing.T) {
+	e := findFirst(t, addressDetector(), "Выезд специалиста по адресу: Новосибирск, Гоголя 10-3.")
+	if e.Value != "Новосибирск, Гоголя 10-3." {
+		t.Fatalf("got %q", e.Value)
+	}
+}
+
+func TestHyphenatedNameNoFalsePositive(t *testing.T) {
+	text := "В переписке участвует Иван-Пётр Лебедев-Ростовский."
+	es := namePairDetector().Find(text)
+	for _, e := range es {
+		if e.Type == FullName {
+			t.Fatalf("hyphenated name should not produce full_name, got %+v", es)
+		}
+	}
+	// Другие детекторы ФИО тоже не должны ложно сработать.
+	all := findAll(t, text)
+	for _, e := range all {
+		if e.Type == FullName {
+			t.Fatalf("hyphenated name should not produce full_name, got %+v", all)
+		}
+	}
+}
