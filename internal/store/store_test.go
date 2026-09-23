@@ -19,6 +19,10 @@ const (
 	tokenKeyT     = "t"
 	tokenValV     = "v"
 	payloadX      = "payloadX"
+	consumerC1    = "c1"
+	payloadP1     = "p1"
+	tokenValVV    = "vv"
+	tokenValVVV   = "vvv"
 )
 
 func TestPutGet(t *testing.T) {
@@ -120,34 +124,35 @@ func TestTotalBytesCounter(t *testing.T) {
 	defer s.Close()
 
 	// Put двух записей.
-	if err := s.Put("c1", "p1", "src", "mask", map[string]string{tokenKeyT: "v"}); err != nil {
+	if err := s.Put(consumerC1, payloadP1, srcStr, maskStr, map[string]string{tokenKeyT: tokenValV}); err != nil {
 		t.Fatalf(putErrFmt, err)
 	}
-	if err := s.Put("c2", "p2", "src", "mask", map[string]string{tokenKeyT: "vv"}); err != nil {
+	if err := s.Put("c2", "p2", srcStr, maskStr, map[string]string{tokenKeyT: tokenValVV}); err != nil {
 		t.Fatalf(putErrFmt, err)
 	}
-	want := len("mask") + len("v") + len("mask") + len("vv")
-	if s.totalBytes != want {
-		t.Fatalf("after puts totalBytes=%d, want %d", s.totalBytes, want)
-	}
+	want := len(maskStr) + len(tokenValV) + len(maskStr) + len(tokenValVV)
+	assertTotalBytes(t, s, want, "after puts")
 
 	// Перезапись: старая запись вычитается, новая прибавляется.
-	if err := s.Put("c1", "p1", "src", "mask", map[string]string{tokenKeyT: "vvv"}); err != nil {
+	if err := s.Put(consumerC1, payloadP1, srcStr, maskStr, map[string]string{tokenKeyT: tokenValVVV}); err != nil {
 		t.Fatalf(putErrFmt, err)
 	}
-	want = len("mask") + len("vvv") + len("mask") + len("vv")
-	if s.totalBytes != want {
-		t.Fatalf("after overwrite totalBytes=%d, want %d", s.totalBytes, want)
-	}
+	want = len(maskStr) + len(tokenValVVV) + len(maskStr) + len(tokenValVV)
+	assertTotalBytes(t, s, want, "after overwrite")
 
 	// Истечение: Get удаляет истёкшую запись и вычитает её байты.
 	time.Sleep(80 * time.Millisecond)
-	if _, ok := s.Get("c1", "p1"); ok {
+	if _, ok := s.Get(consumerC1, payloadP1); ok {
 		t.Fatal("record should be expired")
 	}
-	want = len("mask") + len("vv")
+	want = len(maskStr) + len(tokenValVV)
+	assertTotalBytes(t, s, want, "after expiry")
+}
+
+func assertTotalBytes(t *testing.T, s *Store, want int, stage string) {
+	t.Helper()
 	if s.totalBytes != want {
-		t.Fatalf("after expiry totalBytes=%d, want %d", s.totalBytes, want)
+		t.Fatalf("%s totalBytes=%d, want %d", stage, s.totalBytes, want)
 	}
 }
 
