@@ -14,6 +14,11 @@ const (
 	noPassportFmt = "expected no passport_number, got %+v"
 	passportFmt   = "expected passport_number, got %+v"
 	pushkin       = "пушкин"
+	innClient     = "ИНН клиента 7707083893"
+	passport226   = "13 75 332091"
+	driver77      = "77 01 123456"
+	vuCategoryB   = "ВУ 99 12 345678 категории B"
+	publicFigFmt  = "public figure should be excluded, got %+v"
 )
 
 func findFirst(t *testing.T, d Detector, text string) Entity {
@@ -112,7 +117,7 @@ func TestPINNoFalsePositive(t *testing.T) {
 func TestINN(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"ИНН: 123456789012", "123456789012"},
-		{"ИНН клиента 7707083893", inn7707083893},
+		{innClient, inn7707083893},
 		{"ИНН физлица 7707083893", inn7707083893},
 		{"ИНН получателя 7707083893", inn7707083893},
 		{"ИНН организации 7707083893", inn7707083893},
@@ -134,10 +139,11 @@ func TestINNNoFalsePositive(t *testing.T) {
 func TestPassportNumber(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"Паспорт 4509 123456", passport4509},
-		{"паспорт серия 4509 номер 123456", "4509 номер 123456"},
-		{"У него паспорт серии 45 09 номер 123456", "45 09 номер 123456"},
 		{"паспорт 4509123456", "4509123456"},
 		{passport4509, passport4509},
+		{"Паспорт 28 24 568674, прошу", "28 24 568674"},
+		{passport226, passport226},
+		{"паспорт гражданина РФ 47 08 620831", "47 08 620831"},
 	} {
 		e := findFirst(t, passportNumberDetector(), tc.in)
 		if e.Value != tc.want {
@@ -146,13 +152,28 @@ func TestPassportNumber(t *testing.T) {
 	}
 }
 
+func TestPassportSeriesNumber(t *testing.T) {
+	for _, tc := range []struct{ in, series, number string }{
+		{"серия 40 15 № 386540", "40 15", "386540"},
+		{"серия 8318 номер 673781", "8318", "673781"},
+	} {
+		es := passportNumberDetector().Find(tc.in)
+		if !hasValue(es, tc.series) {
+			t.Fatalf("for %q expected series %q, got %+v", tc.in, tc.series, es)
+		}
+		if !hasValue(es, tc.number) {
+			t.Fatalf("for %q expected number %q, got %+v", tc.in, tc.number, es)
+		}
+	}
+}
+
 func TestDriverLicense(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"Водительское удостоверение 77 01 123456", "77 01 123456"},
+		{"Водительское удостоверение 77 01 123456", driver77},
 		{vu7701123456, "7701123456"},
-		{"ВУ 99 12 345678 категории B", "99 12 345678"},
+		{vuCategoryB, "99 12 345678"},
 		{"вод. удостоверение 7701 123456", "7701 123456"},
-		{"права: 77 01 123456", "77 01 123456"},
+		{"права: 77 01 123456", driver77},
 	} {
 		e := findFirst(t, driverLicenseDetector(), tc.in)
 		if e.Value != tc.want {
@@ -171,8 +192,8 @@ func TestDocumentDisambiguation(t *testing.T) {
 		t.Fatalf(noPassportFmt, es)
 	}
 
-	// "ВУ 99 12 345678 категории B" → driver_license_number
-	es = findAll(t, "ВУ 99 12 345678 категории B")
+	// vuCategoryB → driver_license_number
+	es = findAll(t, vuCategoryB)
 	if !hasType(es, DriverLicenseNumber) {
 		t.Fatalf("expected driver_license_number, got %+v", es)
 	}
@@ -189,8 +210,8 @@ func TestDocumentDisambiguation(t *testing.T) {
 		t.Fatalf(noPassportFmt, es)
 	}
 
-	// "ИНН клиента 7707083893" → только inn (не passport_number)
-	es = findAll(t, "ИНН клиента 7707083893")
+	// innClient → только inn (не passport_number)
+	es = findAll(t, innClient)
 	if !hasType(es, Inn) {
 		t.Fatalf("expected inn, got %+v", es)
 	}
@@ -495,12 +516,12 @@ func hasFullNameContaining(es []Entity, sub string) bool {
 func TestPublicFigureExclusion(t *testing.T) {
 	es := findAll(t, "Поэт Александр Пушкин написал стихи.")
 	if hasFullNameContaining(es, pushkin) {
-		t.Fatalf("public figure should be excluded, got %+v", es)
+		t.Fatalf(publicFigFmt, es)
 	}
 
 	es = findAll(t, "Александр Сергеевич Пушкин — поэт.")
 	if hasFullNameContaining(es, pushkin) {
-		t.Fatalf("public figure should be excluded, got %+v", es)
+		t.Fatalf(publicFigFmt, es)
 	}
 
 	es = findAll(t, "Клиент Александр Пушкин")
@@ -536,6 +557,191 @@ func TestHyphenatedNameNoFalsePositive(t *testing.T) {
 	for _, e := range all {
 		if e.Type == FullName {
 			t.Fatalf("hyphenated name should not produce full_name, got %+v", all)
+		}
+	}
+}
+
+func TestFullNameCapitalization(t *testing.T) {
+	// Слова имени должны начинаться с заглавной буквы.
+	es := findAll(t, "Также клиент сообщил пин-код 5551")
+	if hasType(es, FullName) {
+		t.Fatalf("lowercase words should not be full_name, got %+v", es)
+	}
+
+	for _, tc := range []struct{ in, want string }{
+		{"У клиента Константин Викторович Титов не проходит", "Константин Викторович Титов"},
+		{"Прошу перевести деньги на счёт Татьяны Романовны Кузнецовой", "Татьяны Романовны Кузнецовой"},
+		{"У клиента ПАВЛОВ АРТЁМ ИВАНОВИЧ не проходит", "ПАВЛОВ АРТЁМ ИВАНОВИЧ"},
+	} {
+		es := findAll(t, tc.in)
+		if !hasValue(es, tc.want) {
+			t.Fatalf("for %q expected full_name %q, got %+v", tc.in, tc.want, es)
+		}
+	}
+}
+
+func TestSurnameInitials(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"Сформируй письмо для Шевченко Л.О.: напомни", "Шевченко Л.О."},
+		{"Виноградов П. П.", "Виноградов П. П."},
+		{"У клиента БАРАНОВ Н.М. не проходит", "БАРАНОВ Н.М."},
+		{"Ковалёв Г. Д.", "Ковалёв Г. Д."},
+	} {
+		e := findFirst(t, surnameInitialsDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestSurnameInitialsReverse(t *testing.T) {
+	e := findFirst(t, surnameInitialsDetector(), "Л.О. Шевченко подписал документ")
+	if e.Value != "Л.О. Шевченко" {
+		t.Fatalf(gotQFmt, e.Value)
+	}
+}
+
+func TestSurnameYova(t *testing.T) {
+	e := findFirst(t, namePairDetector(), "Киселёва Наталья")
+	if e.Value != "Киселёва Наталья" {
+		t.Fatalf(gotQFmt, e.Value)
+	}
+}
+
+func TestPublicFigureGagarin(t *testing.T) {
+	es := findAll(t, "Юрий Гагарин совершил первый полёт в космос")
+	if hasFullNameContaining(es, "гагарин") {
+		t.Fatalf(publicFigFmt, es)
+	}
+}
+
+func TestCardholderLatinUppercase(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"CVV 376, держатель ARTEM PAVLOV. Также", "ARTEM PAVLOV"},
+		{"OLEG ALEKSEEV", "OLEG ALEKSEEV"},
+	} {
+		e := findFirst(t, cardholderNameDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestCitizenshipNew(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"являюсь гражданином Республики Беларусь", "Республики Беларусь"},
+		{"являюсь гражданином Узбекистана", "Узбекистана"},
+		{"Гражданство: Республики Беларусь код подразделения 909-534 Операция", "Республики Беларусь"},
+		{"гражданство РФ", "РФ"},
+	} {
+		e := findFirst(t, citizenshipDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestCVVBackLabels(t *testing.T) {
+	e := findFirst(t, cvvDetector(), "код на обороте карты 811")
+	if e.Value != "811" {
+		t.Fatalf(gotQFmt, e.Value)
+	}
+}
+
+func TestPassportTwoTwoSix(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"Паспорт 28 24 568674, прошу", "28 24 568674"},
+		{passport226, passport226},
+		{"паспорт гражданина РФ 47 08 620831", "47 08 620831"},
+	} {
+		e := findFirst(t, passportNumberDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestDriverLicenseVUNo(t *testing.T) {
+	e := findFirst(t, driverLicenseDetector(), "в/у № 77 01 123456")
+	if e.Value != driver77 {
+		t.Fatalf(gotQFmt, e.Value)
+	}
+}
+
+func TestBirthDateISO(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"дата рождения 2000-05-05", "2000-05-05"},
+		{"1978-02-09", "1978-02-09"},
+		{"родился «07» октября 1988 года", "«07» октября 1988"},
+		{"родился 1950-06-02 года", "1950-06-02"},
+	} {
+		e := findFirst(t, birthDateDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestPhoneTollFree(t *testing.T) {
+	es := phoneDetector().Find("Горячая линия банка: 8 800 200-00-00")
+	if len(es) != 0 {
+		t.Fatalf("toll-free number should not match phone, got %+v", es)
+	}
+}
+
+func TestBirthPlaceAbbrev(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"место рождения гор. Тюмень. Паспорт", "гор. Тюмень"},
+		{"место рождения пос. Солнечный Московской обл.. Паспорт", "пос. Солнечный Московской обл."},
+	} {
+		e := findFirst(t, birthPlaceDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestIssuingAuthorityBare(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"Отделом УФМС России по Омской области", "Отделом УФМС России по Омской области"},
+		{"ГУ МВД России по г. Нижний Новгород", "ГУ МВД России по г. Нижний Новгород"},
+	} {
+		e := findFirst(t, issuingAuthorityDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestIssuingAuthorityTrimDate(t *testing.T) {
+	e := findFirst(t, issuingAuthorityDetector(), "выдан ГУ МВД России по г. Тюмень 2023.04.02, код подразделения 201-391")
+	if e.Value != "ГУ МВД России по г. Тюмень" {
+		t.Fatalf(gotQFmt, e.Value)
+	}
+}
+
+func TestAddressTrim(t *testing.T) {
+	e := findFirst(t, addressDetector(), "по адресу г. Волгоград, ул. Октябрьская, д. 72, кв. 271, курьер позвонит на 89235724492")
+	if e.Value != "г. Волгоград, ул. Октябрьская, д. 72, кв. 271" {
+		t.Fatalf(gotQFmt, e.Value)
+	}
+}
+
+func TestPostalCodeG(t *testing.T) {
+	e := findFirst(t, postalCodeDetector(), "260251, г. Екатеринбург, ул. Садовая")
+	if e.Value != "260251" {
+		t.Fatalf(gotQFmt, e.Value)
+	}
+}
+
+func TestStreetPostfix(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"Тюмень, Строителей улица, дом 131", "Строителей"},
+		{"пр-т Пушкина", "Пушкина"},
+	} {
+		e := findFirst(t, streetDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf(forGotWantFmt, tc.in, e.Value, tc.want)
 		}
 	}
 }
