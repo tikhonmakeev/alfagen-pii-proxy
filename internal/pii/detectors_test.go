@@ -104,11 +104,19 @@ func TestINN(t *testing.T) {
 		{"ИНН клиента 7707083893", "7707083893"},
 		{"ИНН физлица 7707083893", "7707083893"},
 		{"ИНН получателя 7707083893", "7707083893"},
+		{"ИНН организации 7707083893", "7707083893"},
 	} {
 		e := findFirst(t, innDetector(), tc.in)
 		if e.Value != tc.want {
 			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
 		}
+	}
+}
+
+func TestINNNoFalsePositive(t *testing.T) {
+	es := innDetector().Find("ИНН и паспорт 4509123456")
+	if len(es) != 0 {
+		t.Fatalf("ИНН и паспорт should not match inn, got %+v", es)
 	}
 }
 
@@ -186,6 +194,18 @@ func TestDocumentDisambiguation(t *testing.T) {
 	}
 	if hasType(es, DriverLicenseNumber) {
 		t.Fatalf("expected no driver_license_number, got %+v", es)
+	}
+
+	// "Инна Петрова, паспорт 4509 123456" → passport_number
+	es = findAll(t, "Инна Петрова, паспорт 4509 123456")
+	if !hasType(es, PassportNumber) {
+		t.Fatalf("expected passport_number, got %+v", es)
+	}
+
+	// "Выдать Петрову паспорт 4509 123456" → passport_number
+	es = findAll(t, "Выдать Петрову паспорт 4509 123456")
+	if !hasType(es, PassportNumber) {
+		t.Fatalf("expected passport_number, got %+v", es)
 	}
 }
 

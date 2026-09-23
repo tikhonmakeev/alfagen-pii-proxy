@@ -148,7 +148,7 @@ func (d *pinDetectorImpl) Find(text string) []Entity {
 	lower := strings.ToLower(text)
 	var out []Entity
 	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
-		labelEnd := m[1]
+		labelEnd := m[3]
 		start, end := m[4], m[5]
 		if start < 0 || end < 0 {
 			continue
@@ -172,7 +172,7 @@ func (d *pinDetectorImpl) Find(text string) []Entity {
 }
 
 func innDetector() Detector {
-	re := regexp.MustCompile(`(инн|inn)\s*(?:\S+\s+){0,2}[:.\-]?\s*(\d{10}|\d{12})\b`)
+	re := regexp.MustCompile(`(инн|inn)\s*(?:клиента|физлица|физ\.лица|получателя|плательщика|заемщика|заёмщика|организации)?\s*[:.\-]?\s*(\d{10}|\d{12})\b`)
 	return &innDetectorImpl{re: re}
 }
 
@@ -188,7 +188,7 @@ func (d *innDetectorImpl) Find(text string) []Entity {
 	lower := strings.ToLower(text)
 	var out []Entity
 	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
-		labelEnd := m[1]
+		labelEnd := m[3]
 		start, end := m[4], m[5]
 		if start < 0 || end < 0 {
 			continue
@@ -218,8 +218,8 @@ func passportNumberDetector() Detector {
 }
 
 // passportNumberDetectorImpl — детектор номера паспорта. Отбрасывает
-// совпадение, если в 20 байтах перед ним встречается метка другого
-// документа (ИНН, в/у, удостоверение, права).
+// совпадение, если последнее или предпоследнее слово перед номером —
+// метка другого документа (ИНН, в/у, удостоверение, права).
 type passportNumberDetectorImpl struct {
 	re *regexp.Regexp
 }
@@ -239,9 +239,11 @@ func (d *passportNumberDetectorImpl) Find(text string) []Entity {
 			from = 0
 		}
 		ctx := lower[from:start]
-		if strings.Contains(ctx, "инн") || strings.Contains(ctx, "в/у") ||
-			strings.Contains(ctx, "ву ") || strings.Contains(ctx, "ву:") ||
-			strings.Contains(ctx, "удостоверение") || strings.Contains(ctx, "права") {
+		words := docLabelWordRe.FindAllString(ctx, -1)
+		if len(words) > 0 && docLabels[words[len(words)-1]] {
+			continue
+		}
+		if len(words) > 1 && docLabels[words[len(words)-2]] {
 			continue
 		}
 		out = append(out, Entity{
@@ -593,6 +595,15 @@ func (d *namePairDetectorImpl) Find(text string) []Entity {
 }
 
 var cyrillicWordRe = regexp.MustCompile(`[А-Яа-яЁё]+(?:-[А-Яа-яЁё]+)?`)
+
+// docLabelWordRe — слово для проверки меток документов: буквы, цифры и "/".
+var docLabelWordRe = regexp.MustCompile(`[а-яa-z0-9/]+`)
+
+// docLabels — метки документов, блокирующие распознавание номера паспорта.
+var docLabels = map[string]bool{
+	"инн": true, "inn": true, "в/у": true, "ву": true,
+	"удостоверение": true, "права": true,
+}
 
 var commonNames = map[string]bool{
 	"александр": true, "алексей": true, "андрей": true, "анна": true,
