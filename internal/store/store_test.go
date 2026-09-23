@@ -115,6 +115,42 @@ func TestMemoryLimitExceeded(t *testing.T) {
 	}
 }
 
+func TestTotalBytesCounter(t *testing.T) {
+	s := New(50*time.Millisecond, 100, 10)
+	defer s.Close()
+
+	// Put двух записей.
+	if err := s.Put("c1", "p1", "src", "mask", map[string]string{tokenKeyT: "v"}); err != nil {
+		t.Fatalf(putErrFmt, err)
+	}
+	if err := s.Put("c2", "p2", "src", "mask", map[string]string{tokenKeyT: "vv"}); err != nil {
+		t.Fatalf(putErrFmt, err)
+	}
+	want := len("mask") + len("v") + len("mask") + len("vv")
+	if s.totalBytes != want {
+		t.Fatalf("after puts totalBytes=%d, want %d", s.totalBytes, want)
+	}
+
+	// Перезапись: старая запись вычитается, новая прибавляется.
+	if err := s.Put("c1", "p1", "src", "mask", map[string]string{tokenKeyT: "vvv"}); err != nil {
+		t.Fatalf(putErrFmt, err)
+	}
+	want = len("mask") + len("vvv") + len("mask") + len("vv")
+	if s.totalBytes != want {
+		t.Fatalf("after overwrite totalBytes=%d, want %d", s.totalBytes, want)
+	}
+
+	// Истечение: Get удаляет истёкшую запись и вычитает её байты.
+	time.Sleep(80 * time.Millisecond)
+	if _, ok := s.Get("c1", "p1"); ok {
+		t.Fatal("record should be expired")
+	}
+	want = len("mask") + len("vv")
+	if s.totalBytes != want {
+		t.Fatalf("after expiry totalBytes=%d, want %d", s.totalBytes, want)
+	}
+}
+
 func TestConcurrent(t *testing.T) {
 	s := New(time.Minute, 10000, 100)
 	defer s.Close()

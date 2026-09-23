@@ -26,6 +26,7 @@ type Store struct {
 	ttl        time.Duration
 	maxEntries int
 	maxBytes   int
+	totalBytes int
 	entries    map[string]*entry
 	stop       chan struct{}
 	done       chan struct{}
@@ -79,7 +80,7 @@ func (s *Store) Put(consumerID, payloadID, sourceText, masked string, tokens map
 			return ErrCapacityExceeded
 		}
 	}
-	total := s.totalBytesLocked()
+	total := s.totalBytes
 	if existing != nil {
 		total -= existing.bytes
 	}
@@ -88,6 +89,10 @@ func (s *Store) Put(consumerID, payloadID, sourceText, masked string, tokens map
 	}
 
 	s.entries[key] = &entry{record: rec, bytes: bytes, expiry: time.Now().Add(s.ttl)}
+	if existing != nil {
+		s.totalBytes -= existing.bytes
+	}
+	s.totalBytes += bytes
 	return nil
 }
 
@@ -103,6 +108,7 @@ func (s *Store) Get(consumerID, payloadID string) (Record, bool) {
 	}
 	if time.Now().After(e.expiry) {
 		delete(s.entries, key)
+		s.totalBytes -= e.bytes
 		return Record{}, false
 	}
 	return e.record, true
@@ -114,14 +120,6 @@ func (s *Store) Close() {
 		close(s.stop)
 		<-s.done
 	})
-}
-
-func (s *Store) totalBytesLocked() int {
-	total := 0
-	for _, e := range s.entries {
-		total += e.bytes
-	}
-	return total
 }
 
 func (s *Store) cleanupLoop() {
@@ -145,6 +143,7 @@ func (s *Store) cleanup() {
 	for k, e := range s.entries {
 		if now.After(e.expiry) {
 			delete(s.entries, k)
+			s.totalBytes -= e.bytes
 		}
 	}
 }
