@@ -21,14 +21,18 @@ func Mask(text string, entities []Entity) (string, map[string]string, error) {
 		return "", nil, err
 	}
 
-	// Сортируем по длине span (убывание), затем по Start (возрастание),
-	// чтобы при пересечении оставить самую длинную сущность.
+	// Сортируем по длине span (убывание), затем по Confidence (убывание),
+	// затем по Start (возрастание), чтобы при пересечении оставить самую
+	// длинную сущность, а при равной длине — с большей уверенностью.
 	sorted := make([]Entity, len(entities))
 	copy(sorted, entities)
 	sort.Slice(sorted, func(i, j int) bool {
 		li, lj := sorted[i].End-sorted[i].Start, sorted[j].End-sorted[j].Start
 		if li != lj {
 			return li > lj
+		}
+		if sorted[i].Confidence != sorted[j].Confidence {
+			return sorted[i].Confidence > sorted[j].Confidence
 		}
 		return sorted[i].Start < sorted[j].Start
 	})

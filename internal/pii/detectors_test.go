@@ -121,9 +121,55 @@ func TestPassportNumber(t *testing.T) {
 }
 
 func TestDriverLicense(t *testing.T) {
-	e := findFirst(t, driverLicenseDetector(), "Водительское удостоверение 77 01 123456")
-	if e.Value != "77 01 123456" {
-		t.Fatalf("got %q", e.Value)
+	for _, tc := range []struct{ in, want string }{
+		{"Водительское удостоверение 77 01 123456", "77 01 123456"},
+		{"В/У: 7701123456", "7701123456"},
+		{"ВУ 99 12 345678 категории B", "99 12 345678"},
+		{"вод. удостоверение 7701 123456", "7701 123456"},
+		{"права: 77 01 123456", "77 01 123456"},
+	} {
+		e := findFirst(t, driverLicenseDetector(), tc.in)
+		if e.Value != tc.want {
+			t.Fatalf("for %q got %q, want %q", tc.in, e.Value, tc.want)
+		}
+	}
+}
+
+func TestDocumentDisambiguation(t *testing.T) {
+	// "В/У: 7701123456" → только driver_license_number
+	es := findAll(t, "В/У: 7701123456")
+	if !hasType(es, DriverLicenseNumber) {
+		t.Fatalf("expected driver_license_number, got %+v", es)
+	}
+	if hasType(es, PassportNumber) {
+		t.Fatalf("expected no passport_number, got %+v", es)
+	}
+
+	// "ВУ 99 12 345678 категории B" → driver_license_number
+	es = findAll(t, "ВУ 99 12 345678 категории B")
+	if !hasType(es, DriverLicenseNumber) {
+		t.Fatalf("expected driver_license_number, got %+v", es)
+	}
+	if hasType(es, PassportNumber) {
+		t.Fatalf("expected no passport_number, got %+v", es)
+	}
+
+	// "ИНН 7707083893" → только inn
+	es = findAll(t, "ИНН 7707083893")
+	if !hasType(es, Inn) {
+		t.Fatalf("expected inn, got %+v", es)
+	}
+	if hasType(es, PassportNumber) {
+		t.Fatalf("expected no passport_number, got %+v", es)
+	}
+
+	// "паспорт 4509 123456" → passport_number
+	es = findAll(t, "паспорт 4509 123456")
+	if !hasType(es, PassportNumber) {
+		t.Fatalf("expected passport_number, got %+v", es)
+	}
+	if hasType(es, DriverLicenseNumber) {
+		t.Fatalf("expected no driver_license_number, got %+v", es)
 	}
 }
 

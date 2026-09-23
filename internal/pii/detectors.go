@@ -182,19 +182,53 @@ func passportNumberDetector() Detector {
 	// Форматы: "4509 123456", "4509123456", "серия 4509 номер 123456",
 	// "серии 45 09 номер 123456", "4509 номер 123456"
 	re := regexp.MustCompile(`(?:(?:паспорт|серия|серии)\s+)?(\b\d{4}\s+\d{6}\b|\b\d{10}\b|\b\d{2}\s+\d{2}\s+номер\s+\d{6}\b|\b\d{4}\s+номер\s+\d{6}\b)`)
-	return &labelValueDetector{
-		typ:  PassportNumber,
-		re:   re,
-		conf: 0.9,
+	return &passportNumberDetectorImpl{re: re}
+}
+
+// passportNumberDetectorImpl — детектор номера паспорта. Отбрасывает
+// совпадение, если в 20 байтах перед ним встречается метка другого
+// документа (ИНН, в/у, удостоверение, права).
+type passportNumberDetectorImpl struct {
+	re *regexp.Regexp
+}
+
+func (d *passportNumberDetectorImpl) Type() Type { return PassportNumber }
+
+func (d *passportNumberDetectorImpl) Find(text string) []Entity {
+	lower := strings.ToLower(text)
+	var out []Entity
+	for _, m := range d.re.FindAllStringSubmatchIndex(lower, -1) {
+		start, end := m[2], m[3]
+		if start < 0 || end < 0 {
+			continue
+		}
+		from := start - 20
+		if from < 0 {
+			from = 0
+		}
+		ctx := lower[from:start]
+		if strings.Contains(ctx, "инн") || strings.Contains(ctx, "в/у") ||
+			strings.Contains(ctx, "ву ") || strings.Contains(ctx, "ву:") ||
+			strings.Contains(ctx, "удостоверение") || strings.Contains(ctx, "права") {
+			continue
+		}
+		out = append(out, Entity{
+			Type:       PassportNumber,
+			Start:      start,
+			End:        end,
+			Value:      text[start:end],
+			Confidence: 0.9,
+		})
 	}
+	return out
 }
 
 func driverLicenseDetector() Detector {
-	re := regexp.MustCompile(`(?:в/у|водительское\s+удостоверение)\s*[:.\-]?\s*(\d{2}\s+\d{2}\s+\d{6})\b`)
+	re := regexp.MustCompile(`(?:в/у|ву|вод\.\s*удостоверение|водительское\s+удостоверение|права)\s*[:.\-]?\s*(\d{2}\s+\d{2}\s+\d{6}|\d{4}\s+\d{6}|\d{10})\b`)
 	return &labelValueDetector{
 		typ:  DriverLicenseNumber,
 		re:   re,
-		conf: 0.9,
+		conf: 0.95,
 	}
 }
 
